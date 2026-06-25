@@ -15,55 +15,97 @@ except ImportError:  # pragma: no cover - dependency availability varies outside
 
 
 EditorValue = Dict[str, Any]
+MASK_COLORS: dict[str, tuple[int, int, int]] = {
+    "top": (255, 140, 0),
+    "skirt": (255, 0, 64),
+    "dress": (255, 64, 180),
+    "pants": (100, 180, 255),
+    "shoes": (0, 160, 255),
+    "socks": (140, 220, 255),
+    "hat": (240, 220, 0),
+    "hair": (170, 110, 60),
+    "face": (255, 200, 180),
+    "bag": (0, 200, 140),
+    "scarf": (180, 0, 255),
+    "belt": (120, 120, 120),
+    "glasses": (30, 30, 30),
+}
+PART_LABELS: dict[str, str] = {
+    "top": "Top / T-shirt",
+    "skirt": "Skirt",
+    "dress": "Dress",
+    "pants": "Pants",
+    "shoes": "Shoes",
+    "socks": "Socks / Stockings",
+    "hat": "Hat",
+    "hair": "Hair",
+    "face": "Face",
+    "bag": "Bag",
+    "scarf": "Scarf",
+    "belt": "Belt",
+    "glasses": "Glasses",
+}
+
+
+def _empty_editor_value() -> EditorValue:
+    return {"background": None, "layers": [], "composite": None}
+
+
+def _build_part_choices(masks: dict[str, Any]) -> list[str]:
+    choices = [part for part, mask in masks.items() if mask.max() > 0]
+    return choices or ["top"]
 
 
 def auto_detect_masks(
     image: Image.Image,
     model_name: str,
-) -> Tuple[Image.Image, Image.Image, Image.Image, EditorValue, EditorValue, EditorValue, str]:
+) -> Tuple[Image.Image, EditorValue, Any, str, dict[str, Any]]:
     if gr is None:
         raise ImportError("Gradio is required to use the web UI.")
     if image is None:
         raise gr.Error("Once a photo is uploaded, mask detection can run.")
 
     masks = detect_garment_masks(image, model_name=model_name or DEFAULT_MODEL_NAME)
-    top_mask = masks["top"]
-    skirt_mask = masks["skirt"]
-    socks_mask = masks["socks"]
+    choices = _build_part_choices(masks)
+    selected_part = choices[0]
+    overlay = mask_to_overlay(image, masks[selected_part], MASK_COLORS.get(selected_part, (255, 0, 0)))
 
-    top_overlay = mask_to_overlay(image, top_mask, (255, 140, 0))
-    skirt_overlay = mask_to_overlay(image, skirt_mask, (255, 0, 64))
-    socks_overlay = mask_to_overlay(image, socks_mask, (0, 160, 255))
-
-    status = []
-    if top_mask.max() == 0:
-        status.append("Top mask not found")
-    if skirt_mask.max() == 0:
-        status.append("Skirt mask not found")
-    if socks_mask.max() == 0:
-        status.append("Socks mask not found")
-    if not status:
-        status.append("Masks detected. Touch up only if needed.")
+    missing = [PART_LABELS.get(part, part) for part, mask in masks.items() if mask.max() == 0]
+    status = "Detected selectable parts. Pick one from the dropdown."
+    if missing and len(missing) != len(masks):
+        status += " Missing: " + ", ".join(missing[:6])
 
     return (
-        top_overlay,
-        skirt_overlay,
-        socks_overlay,
-        image_to_editor_value(top_mask),
-        image_to_editor_value(skirt_mask),
-        image_to_editor_value(socks_mask),
-        " | ".join(status),
+        overlay,
+        image_to_editor_value(masks[selected_part]),
+        gr.update(choices=choices, value=selected_part),
+        status,
+        masks,
     )
+
+
+def update_selected_part(
+    image: Image.Image,
+    selected_part: str,
+    masks_state: dict[str, Any],
+) -> Tuple[Image.Image, EditorValue]:
+    if gr is None:
+        raise ImportError("Gradio is required to use the web UI.")
+    if image is None:
+        raise gr.Error("Upload a photo first.")
+    if not masks_state or selected_part not in masks_state:
+        raise gr.Error("Run auto detection first.")
+
+    mask = masks_state[selected_part]
+    overlay = mask_to_overlay(image, mask, MASK_COLORS.get(selected_part, (255, 0, 0)))
+    return overlay, image_to_editor_value(mask)
 
 
 def apply_recolor(
     image: Image.Image,
-    top_editor: EditorValue,
-    skirt_editor: EditorValue,
-    socks_editor: EditorValue,
-    top_color: str,
-    skirt_color: str,
-    socks_color: str,
+    selected_part: str,
+    part_editor: EditorValue,
+    target_color: str,
     strength: float,
 ) -> Tuple[Image.Image, Image.Image]:
     if gr is None:
@@ -72,13 +114,8 @@ def apply_recolor(
         raise gr.Error("Upload a photo before recoloring.")
 
     working = image.convert("RGB")
-    top_mask = pil_mask_from_editor_value(top_editor, working.size)
-    skirt_mask = pil_mask_from_editor_value(skirt_editor, working.size)
-    socks_mask = pil_mask_from_editor_value(socks_editor, working.size)
-
-    result = recolor_region(working, top_mask, hex_to_rgb(top_color), strength=strength)
-    result = recolor_region(result, skirt_mask, hex_to_rgb(skirt_color), strength=strength)
-    result = recolor_region(result, socks_mask, hex_to_rgb(socks_color), strength=strength)
+    selected_mask = pil_mask_from_editor_value(part_editor, working.size)
+    result = recolor_region(working, selected_mask, hex_to_rgb(target_color), strength=strength)
     return working, result
 
 
@@ -86,11 +123,13 @@ def build_demo() -> gr.Blocks:
     if gr is None:
         raise ImportError("Gradio is required. Install requirements.txt before launching the app.")
     with gr.Blocks(title="Clothing Recolor for Colab") as demo:
+        masks_state = gr.State({})
+
         gr.Markdown(
             """
             # Clothing Recolor
-            Upload a photo, auto-detect top, skirt, and socks, make small mask corrections if needed,
-            then recolor the garments without generative inpainting.
+            Upload a photo, auto-detect human parts and clothes, choose the part you want,
+            make a small mask correction if needed, then recolor only that selected region.
             """
         )
 
@@ -100,23 +139,22 @@ def build_demo() -> gr.Blocks:
                 model_name = gr.Textbox(
                     value=DEFAULT_MODEL_NAME,
                     label="Segmentation Model",
-                    info="Can be replaced with any compatible segmentation checkpoint.",
+                    info="Default is an ATR-based clothes parsing checkpoint.",
                 )
-                detect_button = gr.Button("Auto Detect Masks", variant="primary")
+                detect_button = gr.Button("Auto Detect Parts", variant="primary")
                 status_text = gr.Textbox(label="Status", interactive=False)
-                top_color = gr.ColorPicker(label="Top Color", value="#404040")
-                skirt_color = gr.ColorPicker(label="Skirt Color", value="#202020")
-                socks_color = gr.ColorPicker(label="Socks Color", value="#f5f5f5")
+                selected_part = gr.Dropdown(
+                    choices=[],
+                    label="Detected Part",
+                    info="Examples: top, skirt, dress, shoes, hat, hair.",
+                )
+                target_color = gr.ColorPicker(label="Target Color", value="#404040")
                 strength = gr.Slider(0.1, 1.0, value=0.85, step=0.05, label="Recolor Strength")
                 apply_button = gr.Button("Apply Recolor")
 
             with gr.Column():
-                top_overlay = gr.Image(type="pil", label="Auto Top Mask Preview")
-                skirt_overlay = gr.Image(type="pil", label="Auto Skirt Mask Preview")
-                socks_overlay = gr.Image(type="pil", label="Auto Socks Mask Preview")
-                top_editor = gr.ImageEditor(label="Adjust Top Mask")
-                skirt_editor = gr.ImageEditor(label="Adjust Skirt Mask")
-                socks_editor = gr.ImageEditor(label="Adjust Socks Mask")
+                selected_overlay = gr.Image(type="pil", label="Selected Part Preview")
+                part_editor = gr.ImageEditor(label="Adjust Selected Mask")
 
             with gr.Column():
                 original_output = gr.Image(type="pil", label="Original")
@@ -125,11 +163,16 @@ def build_demo() -> gr.Blocks:
         detect_button.click(
             fn=auto_detect_masks,
             inputs=[image_input, model_name],
-            outputs=[top_overlay, skirt_overlay, socks_overlay, top_editor, skirt_editor, socks_editor, status_text],
+            outputs=[selected_overlay, part_editor, selected_part, status_text, masks_state],
+        )
+        selected_part.change(
+            fn=update_selected_part,
+            inputs=[image_input, selected_part, masks_state],
+            outputs=[selected_overlay, part_editor],
         )
         apply_button.click(
             fn=apply_recolor,
-            inputs=[image_input, top_editor, skirt_editor, socks_editor, top_color, skirt_color, socks_color, strength],
+            inputs=[image_input, selected_part, part_editor, target_color, strength],
             outputs=[original_output, result_output],
         )
 
