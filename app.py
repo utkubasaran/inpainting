@@ -83,7 +83,7 @@ def generate_edit(
     part_editor: EditorValue,
     garment_description: str,
     inpaint_model_name: str,
-) -> Tuple[Image.Image, Image.Image, str]:
+) -> Tuple[Image.Image, str]:
     if gr is None:
         raise ImportError("Gradio is required to use the web UI.")
     if image is None:
@@ -98,7 +98,7 @@ def generate_edit(
         prompt=prompt,
         model_name=inpaint_model_name or DEFAULT_INPAINT_MODEL,
     )
-    return working, result, prompt
+    return result, prompt
 
 
 def build_demo() -> gr.Blocks:
@@ -119,30 +119,30 @@ def build_demo() -> gr.Blocks:
         with gr.Row():
             with gr.Column(scale=1):
                 image_input = gr.Image(type="pil", label="Fotoğraf")
-                segmentation_model_name = gr.Textbox(
-                    value=DEFAULT_MODEL_NAME,
-                    label="Segmentasyon Modeli",
-                )
                 detect_button = gr.Button("Maskeyi otomatik algıla", variant="primary")
                 selected_part = gr.Dropdown(choices=[], label="Parça")
                 garment_description = gr.Textbox(
                     label="Ne olsun?",
                     placeholder="white blouse, white bra, navy cardigan, white shirt",
                 )
-                inpaint_model_name = gr.Textbox(
-                    value=DEFAULT_INPAINT_MODEL,
-                    label="Inpaint Modeli",
-                )
                 generate_button = gr.Button("Sonucu üret", variant="primary")
                 status_text = gr.Textbox(label="Durum", interactive=False)
-                prompt_preview = gr.Textbox(label="Kullanılan Prompt", interactive=False)
+                with gr.Accordion("Gelişmiş", open=False):
+                    segmentation_model_name = gr.Textbox(
+                        value=DEFAULT_MODEL_NAME,
+                        label="Segmentasyon Modeli",
+                    )
+                    inpaint_model_name = gr.Textbox(
+                        value=DEFAULT_INPAINT_MODEL,
+                        label="Inpaint Modeli",
+                    )
+                    prompt_preview = gr.Textbox(label="Kullanılan Prompt", interactive=False)
 
             with gr.Column(scale=2):
                 mask_preview = gr.Image(type="pil", label="Maske Önizleme")
                 mask_editor = gr.ImageEditor(label="Gerekirse maskeyi düzelt")
 
             with gr.Column(scale=2):
-                original_output = gr.Image(type="pil", label="Orijinal")
                 result_output = gr.Image(type="pil", label="Sonuç")
 
         detect_button.click(
@@ -158,7 +158,7 @@ def build_demo() -> gr.Blocks:
         generate_button.click(
             fn=generate_edit,
             inputs=[image_input, selected_part, mask_editor, garment_description, inpaint_model_name],
-            outputs=[original_output, result_output, prompt_preview],
+            outputs=[result_output, prompt_preview],
         )
 
     return demo
