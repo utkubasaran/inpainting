@@ -10,9 +10,11 @@ RgbColor = Tuple[int, int, int]
 
 
 def hex_to_rgb(value: str) -> RgbColor:
+    if not value:
+        return (64, 64, 64)
     normalized = value.strip().lstrip("#")
     if len(normalized) != 6:
-        raise ValueError("Expected a 6-digit hex color value.")
+        return (64, 64, 64)
     return tuple(int(normalized[index : index + 2], 16) for index in (0, 2, 4))  # type: ignore[return-value]
 
 

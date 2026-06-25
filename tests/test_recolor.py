@@ -7,6 +7,10 @@ def test_hex_to_rgb_supports_hash_prefixed_values():
     assert hex_to_rgb("#ff8800") == (255, 136, 0)
 
 
+def test_hex_to_rgb_falls_back_for_empty_values():
+    assert hex_to_rgb("") == (64, 64, 64)
+
+
 def test_recolor_region_changes_only_masked_pixels():
     image = Image.new("RGB", (2, 1))
     image.putpixel((0, 0), (120, 120, 120))
