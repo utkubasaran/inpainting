@@ -4,7 +4,8 @@ from typing import Any, Dict, Tuple
 
 from PIL import Image
 
-from inpaint import DEFAULT_INPAINT_MODEL, build_inpaint_prompt, run_inpaint
+from a1111_client import DEFAULT_A1111_BASE_URL, run_a1111_img2img
+from inpaint import build_inpaint_prompt
 from segmentation import DEFAULT_MODEL_NAME, detect_garment_masks
 from utils import image_to_editor_value, mask_to_overlay, pil_mask_from_editor_value
 
@@ -82,7 +83,8 @@ def generate_edit(
     selected_part: str,
     part_editor: EditorValue,
     garment_description: str,
-    inpaint_model_name: str,
+    a1111_base_url: str,
+    checkpoint_name: str,
 ) -> Tuple[Image.Image, str]:
     if gr is None:
         raise ImportError("Gradio is required to use the web UI.")
@@ -92,11 +94,12 @@ def generate_edit(
     working = image.convert("RGB")
     selected_mask = pil_mask_from_editor_value(part_editor, working.size)
     prompt = build_inpaint_prompt(selected_part, garment_description)
-    result = run_inpaint(
+    result = run_a1111_img2img(
         image=working,
         mask=selected_mask,
         prompt=prompt,
-        model_name=inpaint_model_name or DEFAULT_INPAINT_MODEL,
+        base_url=a1111_base_url or DEFAULT_A1111_BASE_URL,
+        checkpoint_name=checkpoint_name,
     )
     return result, prompt
 
@@ -132,9 +135,13 @@ def build_demo() -> gr.Blocks:
                         value=DEFAULT_MODEL_NAME,
                         label="Segmentasyon Modeli",
                     )
-                    inpaint_model_name = gr.Textbox(
-                        value=DEFAULT_INPAINT_MODEL,
-                        label="Inpaint Modeli",
+                    a1111_base_url = gr.Textbox(
+                        value=DEFAULT_A1111_BASE_URL,
+                        label="AUTOMATIC1111 API URL",
+                    )
+                    checkpoint_name = gr.Textbox(
+                        value="",
+                        label="Checkpoint Adı (opsiyonel)",
                     )
                     prompt_preview = gr.Textbox(label="Kullanılan Prompt", interactive=False)
 
@@ -157,7 +164,7 @@ def build_demo() -> gr.Blocks:
         )
         generate_button.click(
             fn=generate_edit,
-            inputs=[image_input, selected_part, mask_editor, garment_description, inpaint_model_name],
+            inputs=[image_input, selected_part, mask_editor, garment_description, a1111_base_url, checkpoint_name],
             outputs=[result_output, prompt_preview],
         )
 

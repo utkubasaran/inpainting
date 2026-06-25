@@ -1,9 +1,8 @@
-accelerate>=0.33.0
-diffusers>=0.30.0
 gradio>=5.0.0
 numpy>=1.26.0
 opencv-python>=4.10.0
 pillow>=10.0.0
 pytest>=8.0.0
+requests>=2.32.0
 torch>=2.2.0
 transformers>=4.44.0
