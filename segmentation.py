@@ -25,6 +25,7 @@ DEFAULT_MODEL_NAME = os.getenv(
 
 @dataclass(frozen=True)
 class GarmentLabelMap:
+    top_labels: tuple[int, ...]
     skirt_labels: tuple[int, ...]
     sock_labels: tuple[int, ...]
 
@@ -40,28 +41,34 @@ def extract_garment_masks(
     parsing_map: np.ndarray,
     label_map: GarmentLabelMap,
 ) -> Dict[str, np.ndarray]:
+    top_mask = np.isin(parsing_map, label_map.top_labels).astype(np.uint8) * 255
     skirt_mask = np.isin(parsing_map, label_map.skirt_labels).astype(np.uint8) * 255
     sock_mask = np.isin(parsing_map, label_map.sock_labels).astype(np.uint8) * 255
-    return {"skirt": skirt_mask, "socks": sock_mask}
+    return {"top": top_mask, "skirt": skirt_mask, "socks": sock_mask}
 
 
 def infer_label_map(id2label: Dict[int, str]) -> GarmentLabelMap:
+    top_labels = []
     skirt_labels = []
     sock_labels = []
 
     for label_id, label_name in id2label.items():
         normalized = label_name.lower().replace("-", " ").replace("_", " ")
+        if any(term in normalized for term in ("upper clothes", "top", "shirt", "tshirt", "blouse", "tee")):
+            top_labels.append(int(label_id))
         if any(term in normalized for term in ("skirt", "dress")):
             skirt_labels.append(int(label_id))
         if any(term in normalized for term in ("sock", "stocking", "leg warmer")):
             sock_labels.append(int(label_id))
 
+    if not top_labels:
+        top_labels = list(_parse_env_labels("TOP_LABELS", (3, 4)))
     if not skirt_labels:
         skirt_labels = list(_parse_env_labels("SKIRT_LABELS", (5,)))
     if not sock_labels:
         sock_labels = list(_parse_env_labels("SOCK_LABELS", (7, 8)))
 
-    return GarmentLabelMap(tuple(skirt_labels), tuple(sock_labels))
+    return GarmentLabelMap(tuple(top_labels), tuple(skirt_labels), tuple(sock_labels))
 
 
 @lru_cache(maxsize=1)
