@@ -1,13 +1,13 @@
-# Clothing Recolor for Colab
+# Clothing Inpainting for Colab
 
-This project builds a small `Gradio` app for recoloring skirt and socks areas in a photo while keeping the original pose and texture. It avoids manual inpainting by using automatic human parsing, then lets you make only small mask corrections when the auto-detection is imperfect.
+This project builds a small `Gradio` app for changing a selected clothing region in a photo with text prompts such as `white blouse`, `white shirt`, or `navy cardigan`. It uses automatic human parsing to find the region, then runs text-guided inpainting on only that masked area.
 
 ## Features
 
 - Google Colab friendly startup flow
-- Automatic segmentation for skirt and socks regions
+- Automatic segmentation for top, skirt, dress, pants, shoes, and similar parts
 - Optional mask touch-up in the browser
-- Deterministic recoloring instead of generative repainting
+- Text-guided inpainting for changing garment type and color
 - Before/after preview and download support through Gradio
 
 ## Local Setup
@@ -30,6 +30,7 @@ python app.py
 ## Notes
 
 - Default segmentation checkpoint is `mattmdjaga/segformer_b2_clothes`.
+- Default inpainting checkpoint is `stable-diffusion-v1-5/stable-diffusion-inpainting`.
 - If a different checkpoint uses different label IDs, override with environment variables:
 
 ```bash
@@ -37,4 +38,4 @@ set SKIRT_LABELS=5
 set SOCK_LABELS=7,8
 ```
 
-- The recolor pipeline preserves texture better than inpainting, but it does not invent new fabric structure.
+- The inpainting pipeline can change clothing style and color, but its quality still depends on the segmentation mask and the prompt.

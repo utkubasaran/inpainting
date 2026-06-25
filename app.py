@@ -4,13 +4,13 @@ from typing import Any, Dict, Tuple
 
 from PIL import Image
 
-from recolor import hex_to_rgb, recolor_region
+from inpaint import DEFAULT_INPAINT_MODEL, build_inpaint_prompt, run_inpaint
 from segmentation import DEFAULT_MODEL_NAME, detect_garment_masks
 from utils import image_to_editor_value, mask_to_overlay, pil_mask_from_editor_value
 
 try:
     import gradio as gr
-except ImportError:  # pragma: no cover - dependency availability varies outside Colab
+except ImportError:  # pragma: no cover
     gr = None
 
 
@@ -24,56 +24,34 @@ MASK_COLORS: dict[str, tuple[int, int, int]] = {
     "socks": (140, 220, 255),
     "hat": (240, 220, 0),
     "hair": (170, 110, 60),
-    "face": (255, 200, 180),
     "bag": (0, 200, 140),
     "scarf": (180, 0, 255),
     "belt": (120, 120, 120),
     "glasses": (30, 30, 30),
 }
-PART_LABELS: dict[str, str] = {
-    "top": "Top / T-shirt",
-    "skirt": "Skirt",
-    "dress": "Dress",
-    "pants": "Pants",
-    "shoes": "Shoes",
-    "socks": "Socks / Stockings",
-    "hat": "Hat",
-    "hair": "Hair",
-    "face": "Face",
-    "bag": "Bag",
-    "scarf": "Scarf",
-    "belt": "Belt",
-    "glasses": "Glasses",
-}
-
-
-def _empty_editor_value() -> EditorValue:
-    return {"background": None, "layers": [], "composite": None}
 
 
 def _build_part_choices(masks: dict[str, Any]) -> list[str]:
-    choices = [part for part, mask in masks.items() if mask.max() > 0]
-    return choices or ["top"]
+    return [part for part, mask in masks.items() if mask.max() > 0]
 
 
 def auto_detect_masks(
     image: Image.Image,
-    model_name: str,
+    segmentation_model_name: str,
 ) -> Tuple[Image.Image, EditorValue, Any, str, dict[str, Any]]:
     if gr is None:
         raise ImportError("Gradio is required to use the web UI.")
     if image is None:
-        raise gr.Error("Once a photo is uploaded, mask detection can run.")
+        raise gr.Error("Fotoğraf yükledikten sonra algılama çalışır.")
 
-    masks = detect_garment_masks(image, model_name=model_name or DEFAULT_MODEL_NAME)
+    masks = detect_garment_masks(image, model_name=segmentation_model_name or DEFAULT_MODEL_NAME)
     choices = _build_part_choices(masks)
+    if not choices:
+        raise gr.Error("Algılanan düzenlenebilir bir kıyafet parçası bulunamadı.")
+
     selected_part = choices[0]
     overlay = mask_to_overlay(image, masks[selected_part], MASK_COLORS.get(selected_part, (255, 0, 0)))
-
-    missing = [PART_LABELS.get(part, part) for part, mask in masks.items() if mask.max() == 0]
-    status = "Detected selectable parts. Pick one from the dropdown."
-    if missing and len(missing) != len(masks):
-        status += " Missing: " + ", ".join(missing[:6])
+    status = "Maske hazır. İstersen küçük düzeltme yap, sonra kıyafeti yazıp üret."
 
     return (
         overlay,
@@ -91,89 +69,96 @@ def update_selected_part(
 ) -> Tuple[Image.Image, EditorValue]:
     if gr is None:
         raise ImportError("Gradio is required to use the web UI.")
-    if image is None:
-        raise gr.Error("Upload a photo first.")
-    if not masks_state or selected_part not in masks_state:
-        raise gr.Error("Run auto detection first.")
+    if image is None or not masks_state or selected_part not in masks_state:
+        raise gr.Error("Önce fotoğraf yükleyip maske algılat.")
 
     mask = masks_state[selected_part]
     overlay = mask_to_overlay(image, mask, MASK_COLORS.get(selected_part, (255, 0, 0)))
     return overlay, image_to_editor_value(mask)
 
 
-def apply_recolor(
+def generate_edit(
     image: Image.Image,
     selected_part: str,
     part_editor: EditorValue,
-    target_color: str,
-    strength: float,
-) -> Tuple[Image.Image, Image.Image]:
+    garment_description: str,
+    inpaint_model_name: str,
+) -> Tuple[Image.Image, Image.Image, str]:
     if gr is None:
         raise ImportError("Gradio is required to use the web UI.")
     if image is None:
-        raise gr.Error("Upload a photo before recoloring.")
+        raise gr.Error("Fotoğraf yüklemeden üretim yapılamaz.")
 
     working = image.convert("RGB")
     selected_mask = pil_mask_from_editor_value(part_editor, working.size)
-    result = recolor_region(working, selected_mask, hex_to_rgb(target_color), strength=strength)
-    return working, result
+    prompt = build_inpaint_prompt(selected_part, garment_description)
+    result = run_inpaint(
+        image=working,
+        mask=selected_mask,
+        prompt=prompt,
+        model_name=inpaint_model_name or DEFAULT_INPAINT_MODEL,
+    )
+    return working, result, prompt
 
 
 def build_demo() -> gr.Blocks:
     if gr is None:
         raise ImportError("Gradio is required. Install requirements.txt before launching the app.")
-    with gr.Blocks(title="Clothing Recolor for Colab") as demo:
+
+    with gr.Blocks(title="Kiyafet Inpainting") as demo:
         masks_state = gr.State({})
 
         gr.Markdown(
             """
-            # Clothing Recolor
-            Upload a photo, auto-detect human parts and clothes, choose the part you want,
-            make a small mask correction if needed, then recolor only that selected region.
+            # Kiyafet Inpainting
+            Fotoğrafı yükle, düzenlemek istediğin parçayı seç, örneğin `white blouse` veya `navy cardigan`
+            yaz ve sonucu üret.
             """
         )
 
         with gr.Row():
-            with gr.Column():
-                image_input = gr.Image(type="pil", label="Person Photo")
-                model_name = gr.Textbox(
+            with gr.Column(scale=1):
+                image_input = gr.Image(type="pil", label="Fotoğraf")
+                segmentation_model_name = gr.Textbox(
                     value=DEFAULT_MODEL_NAME,
-                    label="Segmentation Model",
-                    info="Default is an ATR-based clothes parsing checkpoint.",
+                    label="Segmentasyon Modeli",
                 )
-                detect_button = gr.Button("Auto Detect Parts", variant="primary")
-                status_text = gr.Textbox(label="Status", interactive=False)
-                selected_part = gr.Dropdown(
-                    choices=[],
-                    label="Detected Part",
-                    info="Examples: top, skirt, dress, shoes, hat, hair.",
+                detect_button = gr.Button("Maskeyi otomatik algıla", variant="primary")
+                selected_part = gr.Dropdown(choices=[], label="Parça")
+                garment_description = gr.Textbox(
+                    label="Ne olsun?",
+                    placeholder="white blouse, white bra, navy cardigan, white shirt",
                 )
-                target_color = gr.ColorPicker(label="Target Color", value="#404040")
-                strength = gr.Slider(0.1, 1.0, value=0.85, step=0.05, label="Recolor Strength")
-                apply_button = gr.Button("Apply Recolor")
+                inpaint_model_name = gr.Textbox(
+                    value=DEFAULT_INPAINT_MODEL,
+                    label="Inpaint Modeli",
+                )
+                generate_button = gr.Button("Sonucu üret", variant="primary")
+                status_text = gr.Textbox(label="Durum", interactive=False)
+                prompt_preview = gr.Textbox(label="Kullanılan Prompt", interactive=False)
 
-            with gr.Column():
-                selected_overlay = gr.Image(type="pil", label="Selected Part Preview")
-                part_editor = gr.ImageEditor(label="Adjust Selected Mask")
+            with gr.Column(scale=2):
+                mask_preview = gr.Image(type="pil", label="Maske Önizleme")
+                mask_editor = gr.ImageEditor(label="Gerekirse maskeyi düzelt")
 
-            with gr.Column():
-                original_output = gr.Image(type="pil", label="Original")
-                result_output = gr.Image(type="pil", label="Recolored Result")
+            with gr.Column(scale=2):
+                original_output = gr.Image(type="pil", label="Orijinal")
+                result_output = gr.Image(type="pil", label="Sonuç")
 
         detect_button.click(
             fn=auto_detect_masks,
-            inputs=[image_input, model_name],
-            outputs=[selected_overlay, part_editor, selected_part, status_text, masks_state],
+            inputs=[image_input, segmentation_model_name],
+            outputs=[mask_preview, mask_editor, selected_part, status_text, masks_state],
         )
         selected_part.change(
             fn=update_selected_part,
             inputs=[image_input, selected_part, masks_state],
-            outputs=[selected_overlay, part_editor],
+            outputs=[mask_preview, mask_editor],
         )
-        apply_button.click(
-            fn=apply_recolor,
-            inputs=[image_input, selected_part, part_editor, target_color, strength],
-            outputs=[original_output, result_output],
+        generate_button.click(
+            fn=generate_edit,
+            inputs=[image_input, selected_part, mask_editor, garment_description, inpaint_model_name],
+            outputs=[original_output, result_output, prompt_preview],
         )
 
     return demo
