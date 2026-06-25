@@ -6,6 +6,7 @@ def test_build_inpaint_prompt_mentions_selected_part_and_description():
 
     assert "white blouse" in prompt
     assert "upper body garment" in prompt
+    assert "replace the existing clothing" in prompt
 
 
 def test_build_inpaint_prompt_trims_whitespace():

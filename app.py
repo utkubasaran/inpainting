@@ -118,12 +118,12 @@ def build_demo() -> gr.Blocks:
 
         with gr.Row():
             with gr.Column(scale=1):
-                image_input = gr.Image(type="pil", label="Fotoğraf")
+                image_input = gr.Image(type="pil", label="Fotoğraf", height=520)
                 detect_button = gr.Button("Maskeyi otomatik algıla", variant="primary")
                 selected_part = gr.Dropdown(choices=[], label="Parça")
                 garment_description = gr.Textbox(
                     label="Ne olsun?",
-                    placeholder="white blouse, white bra, navy cardigan, white shirt",
+                    placeholder="white blouse, navy cardigan, white shirt",
                 )
                 generate_button = gr.Button("Sonucu üret", variant="primary")
                 status_text = gr.Textbox(label="Durum", interactive=False)
@@ -139,11 +139,11 @@ def build_demo() -> gr.Blocks:
                     prompt_preview = gr.Textbox(label="Kullanılan Prompt", interactive=False)
 
             with gr.Column(scale=2):
-                mask_preview = gr.Image(type="pil", label="Maske Önizleme")
-                mask_editor = gr.ImageEditor(label="Gerekirse maskeyi düzelt")
+                mask_preview = gr.Image(type="pil", label="Maske Önizleme", height=520)
+                mask_editor = gr.ImageEditor(label="Gerekirse maskeyi düzelt", height=520)
 
             with gr.Column(scale=2):
-                result_output = gr.Image(type="pil", label="Sonuç")
+                result_output = gr.Image(type="pil", label="Sonuç", height=520)
 
         detect_button.click(
             fn=auto_detect_masks,

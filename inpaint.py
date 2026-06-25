@@ -42,8 +42,9 @@ def build_inpaint_prompt(selected_part: str, garment_description: str) -> str:
 
     part_description = PART_DESCRIPTIONS.get(selected_part, selected_part)
     return (
-        f"photo of a person wearing {cleaned_description}, "
-        f"realistic {part_description}, natural folds, matching pose, matching lighting"
+        f"replace the existing clothing with {cleaned_description}, "
+        f"photo of a person wearing a realistic {part_description}, "
+        f"natural folds, clearly visible garment change, matching pose, matching lighting"
     )
 
 
@@ -75,9 +76,9 @@ def run_inpaint(
     mask: Image.Image,
     prompt: str,
     negative_prompt: str = "extra limbs, distorted anatomy, blurry, low quality, mismatched clothing",
-    strength: float = 0.95,
-    guidance_scale: float = 7.5,
-    num_inference_steps: int = 30,
+    strength: float = 1.0,
+    guidance_scale: float = 9.0,
+    num_inference_steps: int = 40,
     model_name: str = DEFAULT_INPAINT_MODEL,
 ) -> Image.Image:
     pipe = load_inpaint_pipeline(model_name)
